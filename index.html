@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blob Pen</title>
+  <style>
+    body { margin: 0; background: #222; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { background: #000; }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="480" height="320"></canvas>
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const map = { width: 1000, height: 800 };
+
+    const camera = { x: 0, y: 0, speed: 3 };
+
+    const player = {
+      size: 20,
+      color: "yellow",
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      worldX: 0,
+      worldY: 0
+    };
+
+    const blobCount = 20;
+    const blobs = [];
+    const followers = [];
+    const followDistance = 25;
+
+    // Pen (storage area)
+    const pen = { x: 50, y: 200, size: 200 };
+
+    function randomColor() {
+      const colors = ["red", "lime", "cyan", "magenta", "orange", "white", "pink"];
+      return colors[Math.floor(Math.random() * colors.length)];
+    }
+
+    for (let i = 0; i < blobCount; i++) {
+      blobs.push({
+        x: Math.random() * map.width,
+        y: Math.random() * map.height,
+        size: 15,
+        color: randomColor(),
+        dx: (Math.random() - 0.5) * 6,
+        dy: (Math.random() - 0.5) * 6,
+        wanderTimer: Math.random() * 60,
+        following: false,
+        target: null,
+        inPen: false
+      });
+    }
+
+    const keys = {};
+    window.addEventListener("keydown", e => keys[e.key] = true);
+    window.addEventListener("keyup", e => keys[e.key] = false);
+
+    function update() {
+      // Move camera
+      if (keys["ArrowUp"]) camera.y -= camera.speed;
+      if (keys["ArrowDown"]) camera.y += camera.speed;
+      if (keys["ArrowLeft"]) camera.x -= camera.speed;
+      if (keys["ArrowRight"]) camera.x += camera.speed;
+
+      // Boundaries
+      camera.x = Math.max(0, Math.min(map.width - canvas.width, camera.x));
+      camera.y = Math.max(0, Math.min(map.height - canvas.height, camera.y));
+
+      // Player world position
+      player.worldX = camera.x + player.x;
+      player.worldY = camera.y + player.y;
+
+      // Check if player inside pen
+      const inPen =
+        player.worldX > pen.x &&
+        player.worldX < pen.x + pen.size &&
+        player.worldY > pen.y &&
+        player.worldY < pen.y + pen.size;
+
+      if (inPen && followers.length > 0) {
+        // release followers into pen
+        followers.forEach(blob => {
+          blob.following = false;
+          blob.target = null;
+          blob.inPen = true;
+          // place them randomly inside pen
+          blob.x = pen.x + Math.random() * pen.size;
+          blob.y = pen.y + Math.random() * pen.size;
+        });
+        followers.length = 0;
+      }
+
+      // Update blobs
+      blobs.forEach(blob => {
+        if (!blob.following) {
+          // wandering
+          blob.wanderTimer--;
+          if (blob.wanderTimer <= 0) {
+            blob.dx = (Math.random() - 0.5) * 6;
+            blob.dy = (Math.random() - 0.5) * 6;
+            blob.wanderTimer = 30 + Math.random() * 60;
+          }
+
+          blob.x += blob.dx;
+          blob.y += blob.dy;
+
+          if (blob.inPen) {
+            // keep inside pen
+            if (blob.x < pen.x) { blob.x = pen.x; blob.dx *= -1; }
+            if (blob.x > pen.x + pen.size) { blob.x = pen.x + pen.size; blob.dx *= -1; }
+            if (blob.y < pen.y) { blob.y = pen.y; blob.dy *= -1; }
+            if (blob.y > pen.y + pen.size) { blob.y = pen.y + pen.size; blob.dy *= -1; }
+          } else {
+            // map edges
+            if (blob.x < 0 || blob.x > map.width - blob.size) blob.dx *= -1;
+            if (blob.y < 0 || blob.y > map.height - blob.size) blob.dy *= -1;
+          }
+
+          // check collision with player
+          if (!blob.inPen && distance(blob.x, blob.y, player.worldX, player.worldY) < (blob.size + player.size) / 2) {
+            blob.following = true;
+            blob.target = followers.length === 0 ? player : followers[followers.length - 1];
+            followers.push(blob);
+          }
+        } else {
+          // follow target
+          const tx = blob.target.worldX || blob.target.x;
+          const ty = blob.target.worldY || blob.target.y;
+          const dx = tx - blob.x;
+          const dy = ty - blob.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > followDistance) {
+            blob.x += (dx / dist) * 2.5;
+            blob.y += (dy / dist) * 2.5;
+          }
+        }
+      });
+    }
+
+    function distance(x1, y1, x2, y2) {
+      return Math.hypot(x2 - x1, y2 - y1);
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = "#334";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#446";
+      ctx.fillRect(-camera.x, -camera.y, map.width, 100);
+
+      ctx.fillStyle = "#556";
+      ctx.fillRect(-camera.x, map.height - 100 - camera.y, map.width, 100);
+
+      ctx.fillStyle = "#223";
+      ctx.fillRect(300 - camera.x, 300 - camera.y, 150, 150);
+    }
+
+    function drawPen() {
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(pen.x - camera.x, pen.y - camera.y, pen.size, pen.size);
+      ctx.fillStyle = "rgba(0,255,0,0.1)";
+      ctx.fillRect(pen.x - camera.x, pen.y - camera.y, pen.size, pen.size);
+    }
+
+    function drawBlobs() {
+      blobs.forEach(blob => {
+        ctx.fillStyle = blob.color;
+        ctx.beginPath();
+        ctx.arc(blob.x - camera.x, blob.y - camera.y, blob.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x - player.size / 2, player.y - player.size / 2, player.size, player.size);
+    }
+
+    function gameLoop() {
+      update();
+      drawBackground();
+      drawPen();
+      drawBlobs();
+      drawPlayer();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>
