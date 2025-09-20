@@ -3,20 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Blob Pen</title>
+  <title>blob.</title>
   <style>
     body { margin: 0; background: #222; display: flex; justify-content: center; align-items: center; height: 100vh; }
     canvas { background: #000; }
+    #resetBtn {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
+  <button id="resetBtn">Reset</button>
   <canvas id="gameCanvas" width="480" height="320"></canvas>
   <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
     const map = { width: 1000, height: 800 };
-
     const camera = { x: 0, y: 0, speed: 3 };
 
     const player = {
@@ -33,7 +41,6 @@
     const followers = [];
     const followDistance = 25;
 
-    // Pen (storage area)
     const pen = { x: 50, y: 200, size: 200 };
 
     function randomColor() {
@@ -60,6 +67,73 @@
     window.addEventListener("keydown", e => keys[e.key] = true);
     window.addEventListener("keyup", e => keys[e.key] = false);
 
+    // ---- SAVE / LOAD ----
+    function saveProgress() {
+      const data = {
+        blobs: blobs.map(b => ({
+          x: b.x,
+          y: b.y,
+          dx: b.dx,
+          dy: b.dy,
+          following: b.following,
+          inPen: b.inPen,
+          color: b.color
+        })),
+        followers: followers.map(b => blobs.indexOf(b))
+      };
+      localStorage.setItem("blobGameSave", JSON.stringify(data));
+    }
+
+    function loadProgress() {
+      const saved = localStorage.getItem("blobGameSave");
+      if (!saved) return;
+
+      const data = JSON.parse(saved);
+      data.blobs.forEach((b, i) => {
+        blobs[i].x = b.x;
+        blobs[i].y = b.y;
+        blobs[i].dx = b.dx;
+        blobs[i].dy = b.dy;
+        blobs[i].following = b.following;
+        blobs[i].inPen = b.inPen;
+        blobs[i].color = b.color;
+      });
+
+      followers.length = 0;
+      data.followers.forEach(idx => {
+        blobs[idx].following = true;
+        blobs[idx].target = followers.length === 0 ? player : followers[followers.length - 1];
+        followers.push(blobs[idx]);
+      });
+    }
+
+    // Load saved progress
+    loadProgress();
+
+    // ---- RESET BUTTON ----
+    const resetBtn = document.getElementById("resetBtn");
+    resetBtn.addEventListener("click", () => {
+      localStorage.removeItem("blobGameSave"); // clear saved progress
+
+      blobs.forEach(blob => {
+        blob.x = Math.random() * map.width;
+        blob.y = Math.random() * map.height;
+        blob.dx = (Math.random() - 0.5) * 6;
+        blob.dy = (Math.random() - 0.5) * 6;
+        blob.following = false;
+        blob.target = null;
+        blob.inPen = false;
+        blob.color = randomColor();
+      });
+
+      followers.length = 0;
+      camera.x = 0;
+      camera.y = 0;
+      player.x = canvas.width / 2;
+      player.y = canvas.height / 2;
+    });
+
+    // ---- GAME LOOP ----
     function update() {
       // Move camera
       if (keys["ArrowUp"]) camera.y -= camera.speed;
@@ -83,12 +157,10 @@
         player.worldY < pen.y + pen.size;
 
       if (inPen && followers.length > 0) {
-        // release followers into pen
         followers.forEach(blob => {
           blob.following = false;
           blob.target = null;
           blob.inPen = true;
-          // place them randomly inside pen
           blob.x = pen.x + Math.random() * pen.size;
           blob.y = pen.y + Math.random() * pen.size;
         });
@@ -98,7 +170,6 @@
       // Update blobs
       blobs.forEach(blob => {
         if (!blob.following) {
-          // wandering
           blob.wanderTimer--;
           if (blob.wanderTimer <= 0) {
             blob.dx = (Math.random() - 0.5) * 6;
@@ -110,25 +181,21 @@
           blob.y += blob.dy;
 
           if (blob.inPen) {
-            // keep inside pen
             if (blob.x < pen.x) { blob.x = pen.x; blob.dx *= -1; }
             if (blob.x > pen.x + pen.size) { blob.x = pen.x + pen.size; blob.dx *= -1; }
             if (blob.y < pen.y) { blob.y = pen.y; blob.dy *= -1; }
             if (blob.y > pen.y + pen.size) { blob.y = pen.y + pen.size; blob.dy *= -1; }
           } else {
-            // map edges
             if (blob.x < 0 || blob.x > map.width - blob.size) blob.dx *= -1;
             if (blob.y < 0 || blob.y > map.height - blob.size) blob.dy *= -1;
           }
 
-          // check collision with player
           if (!blob.inPen && distance(blob.x, blob.y, player.worldX, player.worldY) < (blob.size + player.size) / 2) {
             blob.following = true;
             blob.target = followers.length === 0 ? player : followers[followers.length - 1];
             followers.push(blob);
           }
         } else {
-          // follow target
           const tx = blob.target.worldX || blob.target.x;
           const ty = blob.target.worldY || blob.target.y;
           const dx = tx - blob.x;
@@ -140,6 +207,8 @@
           }
         }
       });
+
+      saveProgress(); // auto-save each frame
     }
 
     function distance(x1, y1, x2, y2) {
